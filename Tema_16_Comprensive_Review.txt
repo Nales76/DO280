@@ -276,15 +276,18 @@ LAB 2 - Configure a Project Template with Resource and Network Restrictions
 .......
 ...output omitted...
 
-         -----------------------> AGREGAR BLOQUE
-
+         
 apiVersion: project.openshift.io/v1
  kind: Project
  metadata:
+            -----------------------> AGREGAR BLOQUE                
    labels:
      name: ${PROJECT_NAME}
+            -----------------------> AGREGAR BLOQUE 
    annotations:
-
+   
+   
+            -----------------------> AGREGAR BLOQUE
 #######################################
 # POLICY 1 - Permitir todo el tráfico exterior dirigido hacia  
 #               los pods de los namespaces (clusteres virtuales / proyectos OpenShift)
