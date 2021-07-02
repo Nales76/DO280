@@ -1,0 +1,407 @@
+=========================
+TEMA 16 - COMPRENSIVE REVIEW
+=========================
+
+
+----------
+LAB 1 - Review
+----------
+
+0.- Start
+--------
+[student@workstation ~]$ lab review-troubleshoot start
+
+1.- Create project
+--------
+[student@workstation ~]$ oc login -u kubeadmin -p ${RHT_OCP4_KUBEADM_PASSWD}  
+[student@workstation ~]$ oc new-project review-troubleshoot
+
+2.- Smoke Test: Deploy app
+--------
+[student@workstation ~]$ oc new-app --as-deployment-config --name=hello-world-nginx   https://github.com/RedHatTraining/DO280-apps  --context-dir hello-world-nginx 
+[student@workstation ~]$ oc expose svc/hello-world-nginx
+[student@workstation ~]$ oc get route
+
+#                            | new-app name    |  project name     | Cluster DNS Domain
+[student@workstation ~]$ curl hello-world-nginx-review-troubleshoot.${RHT_OCP4_WILDCARD_DOMAIN}
+
+
+3.- HPPasswd Identity Provider
+--------
+.... 3.1.- Create Secret
+[student@workstation ~]$ WORKFILE=~/DO280/labs/review-troubleshoot/tmp_users 
+[student@workstation ~]$ htpasswd -c -B -b $WORKFILE admin review
+[student@workstation ~]$ USERS=( leader developer qa-engineer )
+[student@workstation ~]$ for NAME in ${USERS[@]} ; do  htpasswd -B -b ${WORKFILE} ${NAME} review ; done
+[student@workstation ~]$ oc create secret generic compreview-users --from-file htpasswd=${WORKFILE} -n openshift-config
+[student@workstation ~]$ oc get secret -n openshift-config | grep compre
+[student@workstation ~]$ oc describe secret  compreview-users -n openshift-config
+[student@workstation ~]$ oc extract secret/compreview-users -n openshift-config --to ~/DO280/labs/review-troubleshoot/ --confirm
+
+.... 3.2.- Load OAUth Config
+[student@workstation ~]$ WORKDIR=~/DO280/labs/review-troubleshoot
+[student@workstation ~]$ oc get oauth cluster -o yaml >   ${WORKDIR}/oauth_usuarios.yaml
+[student@workstation ~]$ cp ${WORKDIR}/oauth_usuarios.yaml  ${WORKDIR}/oauth_usuarios_bk.yaml
+[student@workstation ~]$ vim ${WORKDIR}/oauth_usuarios.yaml
+
+....
+spec:
+ identityProviders:
+ - htpasswd:
+      fileData:
+         name: compreview-users
+   mappingMethod: claim
+   name: cluster-users
+   type: HTPasswd
+.....
+
+[student@workstation ~]$ oc apply -f ${WORKDIR}/oauth_usuarios.yaml
+[student@workstation ~]$ oc get pods -n openshift-authentication
+[student@workstation ~]$ oc login -u leader -p review
+[student@workstation ~]$ oc edit oauth cluster
+
+.... 3.3.- Add cluster admin role to admin
+[student@workstation ~]$ oc adm policy add-cluster-role-to-user cluster-admin admin
+
+.... 3.4.- Create User Reference by login user by user
+[student@workstation ~]$ oc extract secret/compreview-users -n openshift-config --to ${WORKDIR} --confirm
+[student@workstation ~]$ USUARIOS=`cat ${WORKDIR}/htpasswd | awk -F ':' '{print $1}'`
+[student@workstation ~]$ for NAME in ${USUARIOS[@]} ; do oc login -u $NAME -p review ; done
+[student@workstation ~]$ oc login -u admin -p review
+[student@workstation ~]$ oc get users -n review-troubleshoot  
+
+4.- Create three user groups
+--------
+.... 4.1.- Create Groups
+[student@workstation ~]$ oc login -u admin -p review
+[student@workstation ~]$ GRUPOS=( leaders developers qa )
+[student@workstation ~]$ for NAME in ${GRUPOS[@]} ; do  oc adm groups new ${NAME} ; done
+
+.... 4.2.- Assign Users to Groups
+[student@workstation ~]$ oc get users
+[student@workstation ~]$ oc adm groups add-users leaders      leader
+[student@workstation ~]$ oc adm groups add-users developers   developer
+[student@workstation ~]$ oc adm groups add-users qa    qa-engineer 
+
+# Con bucle While
+GRUPOS=( leaders developers qa ) 
+USERS=( leader developer qa-engineer ) 
+INDICE=0 
+
+while [ "${INDICE}" -lt "${#GRUPOS[@]}" ] ; do  
+     echo "oc adm groups add-users ${USERS[$INDICE]} ${GRUPOS[$INDICE]}"
+	 oc adm groups add-users ${GRUPOS[$INDICE]} ${USERS[$INDICE]}
+    INDICE=`expr "${INDICE}" +  1`
+done
+
+# Linea Copy/Paste... bucle en una sola linea
+[student@workstation ~]$ GRUPOS=( leaders developers qa ) ; USERS=( leader developer qa-engineer ) 
+[student@workstation ~]$ INDICE=0; while [ "${INDICE}" -lt "${#GRUPOS[@]}" ] ; do  echo "oc adm groups add-users ${USERS[$INDICE]} ${GRUPOS[$INDICE]}" ; oc adm groups add-users ${GRUPOS[$INDICE]} ${USERS[$INDICE]}; INDICE=`expr "${INDICE}" +  1`; done
+
+.... 4.3.- Allow leaders to create projects
+[student@workstation ~]$ oc adm policy add-cluster-role-to-group self-provisioner leaders
+
+.... 4.4.- Remoce all authenticated users the ability to create projects
+[student@workstation ~]$ oc adm policy remove-cluster-role-from-group self-provisioner system:authenticated:oauth
+
+.... 4.5.- Assign Roles to Groups
+[student@workstation ~]$ oc get rolebindings
+[student@workstation ~]$ oc policy add-role-to-group -n review-troubleshoot  edit   developers
+[student@workstation ~]$ oc policy add-role-to-group -n review-troubleshoot  view   qa
+
+# Con Bucle while
+POLICIES=( edit        view )
+GRUPOS=(   developers  qa   )
+INDICE=0 
+
+while [ "${INDICE}" -lt "${#GRUPOS[@]}" ] ; do  
+	echo "oc policy add-role-to-group -n review-troubleshoot  ${POLICIES[$INDICE]} ${GRUPOS[$INDICE]}"
+	oc policy add-role-to-group -n review-troubleshoot  ${POLICIES[$INDICE]} ${GRUPOS[$INDICE]}
+	INDICE=`expr "${INDICE}" +  1` 
+done
+
+# Linea Copy/Paste... bucle en una sola linea
+[student@workstation ~]$ POLICIES=( self-provisioner edit view ) ; GRUPOS=( leaders developers qa )
+[student@workstation ~]$ INDICE=0; while [ "${INDICE}" -lt "${#GRUPOS[@]}" ] ; do  echo "oc policy add-role-to-group -n review-troubleshoot  ${POLICIES[$INDICE]} ${GRUPOS[$INDICE]}"; oc policy add-role-to-group -n review-troubleshoot  ${POLICIES[$INDICE]} ${GRUPOS[$INDICE]}; INDICE=`expr "${INDICE}" +  1`; done
+
+.... 4.5.- Verify User Roles
+[student@workstation ~]$ oc describe rolebinding.rbac -n review-troubleshoot 
+
+5.- Deploy application
+--------
+[student@workstation ~]$ oc login -u developer -p review
+
+.... 5.1.- App Deployment Config Template
+[student@workstation ~]$ oc create deployment mysql --image registry.access.redhat.com/rhscl/mysql-57-rhel7:5.7 --dry-run=client -o yaml  > ~/DO280/labs/review-troubleshoot/deploy_mysql.yaml
+
+[student@workstation ~]$ oc new-app --name=mysql registry.access.redhat.com/rhscl/mysql-57-rhel7:5.7 -e MSQL_ROOT_PASSWORD=changeMe -o yaml  > ~/DO280/labs/review-troubleshoot/deploy_sql.yaml
+
+.... 5.2.- Create secret for password
+[student@workstation ~]$ oc create secret generic mysql --from-literal password=r3dh4t123
+[student@workstation ~]$ oc describe secret mysql
+
+.... 5.3.- Create PVC... acudir a la documentacion oficial, copy/paste de la plantilla 
+[student@workstation ~]$ vim ~/DO280/labs/review-troubleshoot/pvc.yaml
+
+
+.... 5.4.- Edit the deploymentConfig
+[student@workstation ~]$ vim ~/DO280/labs/review-troubleshoot/deployment_mysql.yaml
+
+.....
+spec:
+   template:
+       spec:
+	      containers:
+		    - env:
+			  - name: MYSQL_ROOT_PASSWORD 
+                valueFrom: 
+                    secretKeyRef:
+                      name: mysql						 
+				      key: password
+
+			  - name: SALUDO 
+                value: hola 
+					
+              volumeMounts: 
+              mountPath: /var/lib/mysql/data
+              name: pvol
+
+          volumes:
+		    - name: "pvol"
+              persistentVolumeClaim:
+                claimName: "mysql_storage"	 ----> Este es el PVC  
+.....
+
+.... 5.5.- Deploy application
+[student@workstation ~]$ oc create -f ~/DO280/labs/review-troubleshoot/deploy_sql.yaml
+
+.... 5.6.- Edit deployment, add environment
+[student@workstation ~]$ oc set env deployment/mysql --prefix MYSQL_ROOT_ --from secret/mysql
+
+.... 5.7.- Edit deployment, add PVC on deployment
+[student@workstation ~]$ oc set volumes deployment/mysql  --add --name mysql-storage --type pvc  --claim-mode rwo --claim-size 2Gi --mount-path /var/lib/mysql/data  --claim-name mysql-storage
+
+.......¿Qué hace el comando?
+.......... 1.- Crea PVC: nombre, size, accessmode
+.......... 2.- Modifica Deployment: secciones {volumes , containers}
+
+[student@workstation ~]$ oc get pvc 
+[student@workstation ~]$ oc set volume --help 
+[student@workstation ~]$ oc rsh mysql-sljldas
+  
+6.- Deploy Wordpress Application
+--------
+[student@workstation ~]$ oc login -u developer 
+
+.... 6.1.- Get deployment template
+[student@workstation ~]$ oc create deployment worpress --image quay.io/redhattraining/wordpress:5.3.0 --dry-run=client -o yaml  > ~/DO280/labs/review-troubleshoot/deploy_wordpress.yaml
+[student@workstation ~]$ oc new-app --name=wordpress quay.io/redhattraining/wordpress:5.3.0 -e WORDPRESS_DB_HOST=mysql -e WORDPRESS_DB_NAME=wordpress -e WORDPRESS_DB_USER=root -e WORDPRESS_DB_PASSWORD=mysql -o yaml  > ~/DO280/labs/review-troubleshoot/deploy_wordpress.yaml
+
+.... 6.2.- Edit the deploymentConfig
+[student@workstation ~]$ vim ~/DO280/labs/review-troubleshoot/deploy_wordpress.yaml
+
+.... 6.3.- Deploy application
+[student@workstation ~]$ oc new-app --name worpress quay.io/redhattraining/wordpress:5.3.0 -e WORDPRESS_DB_HOST=mysql -e WORDPRESS_DB_NAME=wordpress -e WORDPRESS_DB_USER=root -e WORDPRESS_DB_PASSWORD=mysql
+[student@workstation ~]$ oc set env deployment/wordpress  --prefix WORDPRESS_DB_ --from secret/mysql
+[student@workstation ~]$ oc set env deployment wordpress --list
+
+.... 6.4.- Check deployment
+[student@workstation ~]$ oc get deployment/wordpress -o yaml > ~/DO280/labs/review-troubleshoot/deploy_wordpress.yaml
+[student@workstation ~]$ oc logs wordpress-alsjal 
+----> Intenta levantar contenedor en Puerto 80... no está permitido en OpenShift.
+----> Tenemos dos opciones: 
+------->    a) Dar permisos especiales a la Service Account que hace el despliegue
+------->    b) Cambiar el fichero Deployment para asignar puerto no protegido
+
+.... 6.5.- Create service account
+[student@workstation ~]$ oc login -u developer -p review
+[student@workstation ~]$ oc create sa wordpress-sa
+[student@workstation ~]$ oc login -u admin -p review
+[student@workstation ~]$ oc adm policy add-scc-to-user anyuid -z wordpress-sa
+
+
+.... 6.6- Associate Service account to the deploymet
+[student@workstation ~]$ oc login -u developer -p review
+[student@workstation ~]$ oc set serviceaccount deployment/wordpress wordpress-sa
+[student@workstation ~]$ oc scale --replicas 0 deployment/wordpress
+
+.... 6.7.- Expose route
+[student@workstation ~]$ oc expose service wordpress --hostname wordpress.apps.ocp4.example.com
+
+7.- Deploy application, node selector
+--------
+7.1.- Launch Script
+[student@workstation ~]$ ~/DO280/labs/review-troubleshoot/deploy_famous-quotes.sh
+
+7.2.- Edit deplyment Config... Remove Node Selector
+[student@workstation ~]$ ~/DO280/labs/review-troubleshoot/famous-quotes.yaml
+.....
+spec: 
+      -----> Remove this section
+   NodeSelector:
+      env: quote
+      -----> Remove this section
+.....
+
+7.3.- Change etcd entry
+[student@workstation ~]$ oc apply -f ~/DO280/labs/review-troubleshoot/famous-quotes.yaml
+
+7.4.- Verify pods running
+[student@workstation ~]$ oc get pods
+
+7.5.- Expose route
+[student@workstation ~]$ oc expose svc/famous-quotes
+
+
+8.- Finish
+--------
+[student@workstation ~]$ lab review-troubleshoot grade
+
+
+----------
+LAB 2 - Configure a Project Template with Resource and Network Restrictions
+----------
+
+0.- Start
+--------
+[student@workstation ~]$ lab review-template start
+
+1.- Create Project Template
+--------
+[student@workstation ~]$ WORKDIR=~/DO280/labs/review-template/
+[student@workstation ~]$ oc login -u admin -p redhat https://api.ocp4.example.com:6443
+[student@workstation ~]$ oc adm create-bootstrap-project-template  -o yaml > $WORKDIR/project-template.yaml
+[student@workstation ~]$ vim $WORKDIR/project-template.yaml
+
+.......
+...output omitted...
+
+         -----------------------> AGREGAR BLOQUE
+
+apiVersion: project.openshift.io/v1
+ kind: Project
+ metadata:
+   labels:
+     name: ${PROJECT_NAME}
+   annotations:
+
+#######################################
+# POLICY 1 - Permitir todo el tráfico exterior dirigido hacia  
+#               los pods de los namespaces (clusteres virtuales / proyectos OpenShift)
+#                 etiquetados con "network.openshift.io/policy-group: ingress"
+#                   (ejm... tráfico que va a proyecto Ingress)
+#######################################
+- apiVersion: networking.k8s.io/v1
+  kind: NetworkPolicy
+  metadata:
+      name: allow-external-traffic
+  spec:
+      podSelector: {}  
+      ingress:
+        - from:
+          - namespaceSelector:
+              matchLabels:
+                network.openshift.io/policy-group: ingress
+
+#######################################
+# POLICY 2 - Permitir tráfico entre PODS de un mismo proyectos
+#              Bloquear tráfico de PODS de distintos proyectos
+#                Excepcion al trafico que viene de los proyectos con etiqueta "network.openshift.io/policy-group: ingress"
+#                   (ejm... tráfico Ingress se le permite acceso a los PODS de todos los proyectos)
+#######################################
+- apiVersion: networking.k8s.io/v1
+  kind: NetworkPolicy
+  metadata:
+    name: allow-same-namespace
+  spec:
+    podSelector: {}
+    ingress:
+    - from:
+      - podSelector: {}
+		
+#######################################
+# LIMITES -
+#######################################
+- apiVersion: v1
+  kind: LimitRange
+  metadata:
+       name: ${PROJECT_NAME}-limits
+  spec:
+       limits:
+          - type: Container
+            defaultRequest:
+                cpu: 30m
+                memory: 30Mi
+            default:
+                cpu: 100m
+                memory: 100Mi
+
+#######################################
+# QUOTAS -
+#######################################				
+- apiVersion: v1
+  kind: ResourceQuota
+  metadata:
+    name: ${PROJECT_NAME}-quota
+  spec:
+    hard:
+      pods: '10'
+      requests.cpu: '2'
+      requests.memory: 1Gi
+      limits.cpu: '4'
+      limits.memory: 4Gi         
+         -----------------------> AGREGAR BLOQUE     
+parameters:
+- name: PROJECT_NAME
+- name: PROJECT_DISPLAYNAME
+- name: PROJECT_DESCRIPTION
+- name: PROJECT_ADMIN_USER
+- name: PROJECT_REQUESTING_USER
+......
+
+[student@workstation review-template]$ oc create -f project-template.yaml  -n openshift-config
+[student@workstation review-template]$ oc get templates -n openshift-config
+[student@workstation review-template]$ oc edit  projects.config.openshift.io/cluster
+....
+...output omitted...
+spec:
+ projectRequestTemplate:
+   name: project-request
+....
+
+[student@workstation review-template]$ watch oc get pods -n openshift-apiserver
+
+2.- 
+--------
+[student@workstation review-template]$ oc login -u developer -p developer
+[student@workstation review-template]$ oc new-project review-template
+[student@workstation review-template]$ oc get  networkpolicy,limitrange,resourcequota
+[student@workstation review-template]$ oc get project/review-template  --show-labels
+[student@workstation review-template]$ oc new-app --name hello-secure  --docker-image quay.io/redhattraining/hello-world-secure:v1.0
+[student@workstation review-template]$ watch oc get pods
+
+3.- 
+--------
+[student@workstation review-template]$ oc create secret tls hello-tls  --cert hello-secure-combined.pem --key hello-secure-key.pem
+[student@workstation review-template]$ oc get pods
+[student@workstation review-template]$ oc logs hello-secure-6475f657c9-rmgsr
+[student@workstation review-template]$ oc set volumes deployment/hello-secure  --add --type secret --secret-name hello-tls --mount-path /run/secrets/nginx
+[student@workstation review-template]$ watch oc get pods
+
+4.- 
+--------
+[student@workstation review-template]$ openssl x509  -in hello-secure-combined.pem -noout -ext 'subjectAltName'
+[student@workstation review-template]$ oc create route passthrough  --service hello-secure --hostname hello-secure.apps.ocp4.example.com
+[student@workstation review-template]$ cd
+[student@workstation ~]$ curl -s https://hello-secure.apps.ocp4.example.com  | grep Hello
+
+5.- 
+--------
+[student@workstation ~]$ oc autoscale deployment/hello-secure  --min 1 --max 5 --cpu-percent 80
+[student@workstation ~]$ ~/DO280/solutions/review-template/test-hpa.sh
+[student@workstation ~]$ oc get pods
+
+6.- Start
+--------
+[student@workstation ~]$ lab review-template grade
+[student@workstation ~]$ lab review-template finish
