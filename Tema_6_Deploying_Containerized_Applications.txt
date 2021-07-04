@@ -1,0 +1,252 @@
+=========================
+TEMA 6 - DEPLOYING CONTAINERIZED APPLICATIONS ON OPENSHIFT
+=========================
+
+----------
+GUIDED 1 - Deploying a Database Server on OpenShift
+----------
+
+0.- Start
+--------
+[student@workstation ~]$ lab openshift-resources start
+
+1.- Create 'MySQL' project as 'Cesar' user
+--------
+[student@workstation ~]$ source /usr/local/etc/ocp4.config
+[student@workstation ~]$ oc login -u ${RHT_OCP4_DEV_USER} -p ${RHT_OCP4_DEV_PASSWORD} ${RHT_OCP4_MASTER_API}
+[student@workstation ~]$ oc new-project ${RHT_OCP4_DEV_USER}-mysql-openshift
+
+2.- Deploy MySQL server
+--------
+[student@workstation ~]$ oc new-app --as-deployment-config --docker-image=registry.access.redhat.com/rhscl/mysql-57-rhel7:latest --name=mysql-openshift -e MYSQL_USER=user1 -e MYSQL_PASSWORD=mypa55 -e MYSQL_DATABASE=testdb -e MYSQL_ROOT_PASSWORD=r00tpa55
+
+3.- Verify
+--------
+[student@workstation ~]$ oc status
+[student@workstation ~]$ oc get pods
+[student@workstation ~]$ oc describe pod mysql-openshift-1-xg665
+[student@workstation ~]$ oc get svc
+[student@workstation ~]$ oc describe service mysql-openshift
+[student@workstation ~]$ oc describe dc mysql-openshift
+[student@workstation ~]$ oc expose service mysql-openshift
+
+4.- Port forward MySQL and Verify
+--------
+[student@workstation ~]$ oc port-forward mysql-openshift-1-xg665 3306:3306
+[student@workstation ~]$ mysql -uuser1 -pmypa55 --protocol tcp -h localhost
+MySQL [(none)]> show databases;
+MySQL [(none)]> exit
+CTRL + C
+
+5.- Delete project
+--------
+[student@workstation ~]$ oc delete project ${RHT_OCP4_DEV_USER}-mysql-openshift
+
+6.- Finish 
+--------
+[student@workstation ~]$ lab openshift-resources finish
+
+
+----------
+GUIDED 2 - Exposing a Service as a Route
+----------
+
+0.- Start
+--------
+[student@workstation ~]$ lab openshift-routes start
+
+
+1.- Create Project
+--------
+[student@workstation ~]$ source /usr/local/etc/ocp4.config
+[student@workstation ~]$ oc login -u ${RHT_OCP4_DEV_USER} -p ${RHT_OCP4_DEV_PASSWORD} ${RHT_OCP4_MASTER_API}
+[student@workstation ~]$ oc new-project ${RHT_OCP4_DEV_USER}-route
+
+2.- Deploy Apps
+-------
+[student@workstation ~]$ oc new-app --as-deployment-config php:7.3~https://github.com/${RHT_OCP4_GITHUB_USER}/DO180-apps --context-dir php-helloworld --name php-helloworld
+[student@workstation ~]$ oc get pods -w
+[student@workstation ~]$ oc logs -f bc/php-helloworld
+[student@workstation ~]$ oc describe svc/php-helloworld
+
+3.- Create route to App
+-------
+[student@workstation ~]$ oc expose svc/php-helloworld
+[student@workstation ~]$ oc describe route
+
+4.- Verify Route
+-------
+[student@workstation ~]$ oc delete route/php-helloworld
+[student@workstation ~]$ oc expose svc/php-helloworld --name=${RHT_OCP4_DEV_USER}-xyz
+[student@workstation ~]$ oc describe route
+[student@workstation ~]$ curl ${RHT_OCP4_DEV_USER}-xyz-${RHT_OCP4_DEV_USER}-route.${RHT_OCP4_WILDCARD_DOMAIN}
+
+6.- Finish 
+-------
+[student@workstation ~]$ lab openshift-routes finish
+
+----------
+GUIDED 3 - Creating a Containerized Application with Source-to-Image
+----------
+
+0.- Start
+--------
+[student@workstation ~]$ lab openshift-s2i start
+
+1.- Github... master branch 
+--------
+[student@workstation openshift-s2i]$ cd ~/DO180-apps
+[student@workstation DO180-apps]$ git checkout master
+[student@workstation DO180-apps]$ git checkout -b s2i
+[student@workstation DO180-apps]$ git push -u origin s2i
+[student@workstation DO180-apps]$ cat /home/student/DO180-apps/php-helloworld/index.php
+
+2.- Openshift new project
+--------
+[student@workstation DO180-apps]$ source /usr/local/etc/ocp4.config
+[student@workstation DO180-apps]$ oc login -u ${RHT_OCP4_DEV_USER} -p ${RHT_OCP4_DEV_PASSWORD} ${RHT_OCP4_MASTER_API}
+[student@workstation DO180-apps]$ oc new-project ${RHT_OCP4_DEV_USER}-s2i
+
+3.- OpenShift create application and expose
+--------
+[student@workstation DO180-apps]$ oc new-app --as-deployment-config -i php:7.3  --name=php-helloworld https://github.com/${RHT_OCP4_GITHUB_USER}/DO180-apps#s2i  --context-dir php-helloworld
+[student@workstation openshift-s2i]$ oc get pods
+[student@workstation DO180-apps]$ oc logs --all-containers -f php-helloworld-1-build
+[student@workstation DO180-apps]$ oc describe dc/php-helloworld
+[student@workstation DO180-apps]$ oc expose service php-helloworld --name ${RHT_OCP4_DEV_USER}-helloworld
+[student@workstation DO180-apps]$ oc get route -o jsonpath='{..spec.host}{"\n"}'
+[student@workstation DO180-apps]$ curl -s ${RHT_OCP4_DEV_USER}-helloworld-${RHT_OCP4_DEV_USER}-s2i.${RHT_OCP4_WILDCARD_DOMAIN}
+
+4.- Github commit changes + build new images
+--------
+[student@workstation DO180-apps]$ cd ~/DO180-apps/php-helloworld
+[student@workstation DO180-apps]$ vim /home/student/DO180-apps/php-helloworld/index.php
+<?php
+print "Hello, World! php version is " . PHP_VERSION . "\n";
+print "A change is a coming!\n";
+?>
+
+[student@workstation php-helloworld]$ git add .
+[student@workstation php-helloworld]$ git commit -m 'Changed index page contents.'
+[student@workstation php-helloworld]$ git push origin s2i
+[student@workstation php-helloworld]$ oc start-build php-helloworld
+[student@workstation php-helloworld]$ oc logs php-helloworld-2-build -f
+[student@workstation php-helloworld]$ oc get pods
+[student@workstation php-helloworld]$ curl -s ${RHT_OCP4_DEV_USER}-helloworld-${RHT_OCP4_DEV_USER}-s2i.${RHT_OCP4_WILDCARD_DOMAIN}
+
+5.- Finish
+--------
+[student@workstation ~]$ lab openshift-s2i finish
+
+----------
+GUIDED EXTRA - Creating a Containerized Application with Web Console
+----------
+
+0.- Start
+--------
+[student@workstation ~]$ lab openshift-webconsole start
+
+1.- Download Source Code
+--------
+[student@workstation ~]$ cd ~/DO180-apps
+[student@workstation DO180-apps]$ git checkout master
+[student@workstation DO180-apps]$ git checkout -b console
+[student@workstation DO180-apps]$ git push -u origin console
+[student@workstation DO180-apps]$ vim /home/student/DO180-apps/php-helloworld/index.php
+<?php
+ print "Hello, World! php version is " . PHP_VERSION . "\n";
+ ?>
+ 
+2.- Access Firefox URL
+--------
+[student@workstation ~]$ source /usr/local/etc/ocp4.config
+[student@workstation ~]$ echo $RHT_OCP4_WILDCARD_DOMAIN
+[student@workstation ~]$ echo https://console-openshift-console.${RHT_OCP4_WILDCARD_DOMAIN}
+
+Firefox -> https://console-openshift-console.${RHT_OCP4_WILDCARD_DOMAIN} 
+
+3.- Usar interfaz Web para desplegar proyecto
+--------
+Firefox -> Projects -> Create Project
+
+
+7.- Finish
+--------
+[student@workstation ~]$ lab openshift-webconsole finish
+
+----------
+GUIDED EXTRA - Pacman
+----------
+
+0.- Login
+--------
+[student@workstation ~]$ oc login developer
+username: developer
+password: developer
+
+1.- Crear proyecto pacman
+--------
+[student@workstation ~]$ oc new-project pacman
+[student@workstation ~]$ oc edit project pacman
+[student@workstation ~]$ oc project pacman
+
+2.- Desplegar aplicacion mipacman
+--------
+[student@workstation ~]$ oc new-app --name mipacman https://github.com/CesarTest/pacman 
+[student@workstation ~]$ #oc new-app --name mipacman https://github.com/CesarTest/pacman -l version 
+[student@workstation ~]$ #oc get pods
+
+3.-Cambiar nombre app
+--------
+..... 3.1.- Exportar a fichero
+[student@workstation ~]$ oc get -o yaml all > mipacman.yaml
+
+..... 3.2.- Editar fichero, cambiar de nombre
+[student@workstation ~]$ cp mipacman.yaml mipacman.yaml.BK
+[student@workstation ~]$ vim mipacman.yaml
+
+..... 3.3.- Borrar Aplicacion
+[student@workstation ~]$ oc delete all --all
+[student@workstation ~]$ oc delete all -l app=mipacman
+ 
+..... 3.4.- Crear aplicacion
+[student@workstation ~]$ oc create -f mipacman.yaml
+ 
+4.- Exponer ruta
+--------
+[student@workstation ~]$ oc get service
+[student@workstation ~]$ oc expose service mipacman --name developer-pacmans
+[student@workstation ~]$ oc get route -o jsonpath='{..spec.host}{"\n"}'
+
+----------
+LAB 
+----------
+
+0.- Start
+--------
+[student@workstation ~]$ lab openshift-review start
+
+1.- Log-in + Create Project
+--------
+[student@workstation ~]$ source /usr/local/etc/ocp4.config
+[student@workstation ~]$ oc login -u ${RHT_OCP4_DEV_USER} -p ${RHT_OCP4_DEV_PASSWORD} ${RHT_OCP4_MASTER_API}
+[student@workstation ~]$ oc new-project ${RHT_OCP4_DEV_USER}-ocp
+
+
+2.- Deploy Application
+--------
+[student@workstation DO180-apps]$ oc new-app --as-deployment-config -i php:7.3  --name=php-temps  https://github.com/RedHatTraining/DO180-apps  --context-dir temps
+[student@workstation openshift-s2i]$ oc get pods
+[student@workstation DO180-apps]$ oc logs --all-containers -f php-temps-1-build
+[student@workstation DO180-apps]$ oc describe dc/php-temps
+[student@workstation DO180-apps]$ oc expose service php-temps --name temps
+[student@workstation DO180-apps]$ oc get route -o jsonpath='{..spec.host}{"\n"}'
+
+3.- Verify Application
+--------
+[student@workstation DO180-apps]$ curl -s http://temps-${RHT_OCP4_DEV_USER}-ocp.${RHT_OCP4_WILDCARD_DOMAIN}
+
+4.- Finsh
+--------
+[student@workstation ~]$ lab openshift-review grade
+[student@workstation ~]$ lab openshift-review finish
